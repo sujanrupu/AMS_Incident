@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tickets</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  >
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            outfit: ['Outfit','sans-serif'],
+            mono: ['JetBrains Mono','monospace']
+          },
+          colors: {
+            bg:'#0f0f14',
+            surface:'#16161f',
+            surface2:'#1e1e2e',
+            purple:'#a855f7',
+            yellow:'#facc15',
+            green:'#4ade80',
+            red:'#f87171',
+            muted:'#64748b',
+          }
+        }
+      }
+    }
+  </script>
+
+  <link rel="stylesheet" href="../css/theme.css">
+
+  <style>
+    .modal-backdrop { backdrop-filter: blur(4px); }
+  </style>
+</head>
+
+<body class="bg-bg text-slate-200 min-h-screen overflow-x-hidden">
+
+<div class="relative z-10 max-w-6xl mx-auto px-6 py-8 pb-16">
+
+  <!-- HEADER -->
+  <div class="flex items-center justify-center mb-6 pb-6 border-b border-purple/15">
+    <div class="text-center">
+      <h1 class="text-2xl font-extrabold text-purple tracking-tight">
+        🎫 Tickets System
+      </h1>
+      <p class="mono text-muted text-xs mt-1">
+        Dashboard View
+      </p>
+    </div>
+  </div>
+  
+  
+  <!-- DASHBOARD -->
+  <div id="dashboardTab">
+    <div id="ticketList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+  </div>
+
+</div>
+
+<!-- SCRIPTS -->
+<script src="../js/api.js"></script>
+<script src="../js/tickets.js"></script>
+<script src="../js/ticket-search.js"></script>
+
+<!-- TAB SWITCH -->
+<script>
+function switchTab(tab) {
+
+  const dash = document.getElementById("dashboardTab");
+  const search = document.getElementById("searchTab");
+
+  const dashBtn = document.getElementById("tabDashboardBtn");
+  const searchBtn = document.getElementById("tabSearchBtn");
+
+  if (tab === "dashboard") {
+
+    dash.classList.remove("hidden");
+    search.classList.add("hidden");
+
+    dashBtn.classList.add("bg-purple", "text-black");
+    searchBtn.classList.remove("bg-purple", "text-black");
+
+  } else {
+
+    dash.classList.add("hidden");
+    search.classList.remove("hidden");
+
+    searchBtn.classList.add("bg-purple", "text-black");
+    dashBtn.classList.remove("bg-purple", "text-black");
+
+  }
+}
+</script>
+
+</body>
+</html>

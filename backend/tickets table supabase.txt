@@ -1,0 +1,153 @@
+Ticket Table creation schema:
+
+-- Enable extensions
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+
+-- Create tickets table
+CREATE TABLE IF NOT EXISTS tickets (
+
+  -- Internal DB UUID
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Actual Jira Issue Key
+  -- Example: TP-544
+  issue_key TEXT UNIQUE NOT NULL,
+
+  -- Child display key
+  -- Example:
+  -- TP-544.1
+  -- TP-544.2
+  child_key TEXT UNIQUE,
+
+  -- User details
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+
+  -- Ticket details
+  summary TEXT NOT NULL,
+  description TEXT,
+
+  -- Status
+  status TEXT NOT NULL DEFAULT 'Open'
+    CHECK (status IN ('Open', 'Completed')),
+
+  -- Duplicate tracking
+  is_duplicate BOOLEAN DEFAULT FALSE,
+
+  -- Parent Jira ticket key
+  -- Example: TP-544
+  parent_ticket_key TEXT,
+
+  -- Embeddings
+  embedding VECTOR(384),
+
+  -- Timestamps
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+  -- Checklist + execution
+  checklist_steps JSONB DEFAULT '[]'::jsonb,
+  commands JSONB DEFAULT '[]'::jsonb,
+
+  -- RUNBOOK (kept as before)
+  runbook_title TEXT,
+  runbook_category TEXT,
+  runbook_escalation_team TEXT,
+  match_type TEXT
+);
+
+
+vector_index schema:
+
+-- =========================================================
+-- VECTOR INDEX
+-- =========================================================
+
+CREATE INDEX IF NOT EXISTS tickets_embedding_idx
+ON tickets
+USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 100);
+
+
+-- =========================================================
+-- ADDITIONAL PERFORMANCE INDEXES
+-- =========================================================
+
+CREATE INDEX IF NOT EXISTS idx_tickets_issue_key
+ON tickets(issue_key);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_child_key
+ON tickets(child_key);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_parent_ticket
+ON tickets(parent_ticket_key);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_duplicate
+ON tickets(is_duplicate);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_status
+ON tickets(status);
+
+
+
+ticket_simlarity_srearch schema:
+
+-- ─────────────────────────────────────────────
+-- DROP OLD FUNCTION
+-- ─────────────────────────────────────────────
+DROP FUNCTION IF EXISTS match_tickets(
+    VECTOR(384),
+    INT
+);
+
+-- ─────────────────────────────────────────────
+-- CREATE UPDATED FUNCTION
+-- ONLY OPEN PARENT TICKETS
+-- ─────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION match_tickets(
+    query_embedding VECTOR(384),
+    match_count INT
+)
+RETURNS TABLE (
+    id UUID,
+    issue_key TEXT,
+    child_key TEXT,
+    summary TEXT,
+    status TEXT,
+    similarity FLOAT
+)
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT
+        id,
+        issue_key,
+        child_key,
+        summary,
+        status,
+
+        1 - (
+            embedding <=> query_embedding
+        ) AS similarity
+
+    FROM tickets
+
+    WHERE
+        embedding IS NOT NULL
+
+        -- Only OPEN tickets
+        AND status = 'Open'
+
+        -- Ignore duplicates
+        AND is_duplicate = FALSE
+
+        -- Ignore child tickets
+        AND child_key IS NULL
+
+    ORDER BY
+        embedding <=> query_embedding
+
+    LIMIT match_count;
+$$;
