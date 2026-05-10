@@ -1,136 +1,264 @@
+# services/merge_service.py
+
 from repositories.ticket_repository import (
     get_all_tickets,
-    update_parent,
-    update_child_keys,
-    get_children
+    get_children,
+    supabase
 )
 
-from repositories.ticket_repository import supabase
-
-from services.jira_service import complete_parent_and_children
+from services.jira_service import (
+    complete_parent_and_children
+)
 
 
 # ─────────────────────────────────────────────
 # MARK DUPLICATE
 # ─────────────────────────────────────────────
 async def mark_duplicate(issue_key: str):
+
     try:
+
         supabase.table("tickets").update({
             "is_duplicate": True
         }).eq("issue_key", issue_key).execute()
+
         return True
+
     except Exception as e:
-        print("❌ mark_duplicate error:", str(e))
+
+        print(
+            "❌ mark_duplicate error:",
+            str(e)
+        )
+
         return False
 
 
+# ─────────────────────────────────────────────
+# GET NEXT CHILD NUMBER
+# Example:
+# TP-650.1
+# TP-650.2
+# → returns 3
+# ─────────────────────────────────────────────
+async def get_next_child_number(parent_key: str):
 
-async def merge_tickets(target_parent: str, source_parents: list):
+    try:
+
+        res = (
+            supabase.table("tickets")
+            .select("child_key")
+            .eq("parent_ticket_key", parent_key)
+            .not_.is_("child_key", "null")
+            .execute()
+        )
+
+        rows = res.data or []
+
+        max_num = 0
+
+        for row in rows:
+
+            child_key = row.get("child_key")
+
+            if not child_key:
+                continue
+
+            try:
+
+                num = int(
+                    child_key.split(".")[-1]
+                )
+
+                if num > max_num:
+                    max_num = num
+
+            except:
+                pass
+
+        return max_num + 1
+
+    except Exception as e:
+
+        print(
+            "❌ get_next_child_number error:",
+            str(e)
+        )
+
+        return 1
+
+
+# ─────────────────────────────────────────────
+# MERGE TICKETS
+# ─────────────────────────────────────────────
+async def merge_tickets(
+    target_parent: str,
+    source_parents: list
+):
 
     try:
 
         tickets = await get_all_tickets()
 
         if not tickets:
-            return {"success": False, "message": "No tickets found"}
 
-        source_parents = list(set(source_parents))
-        source_parents = [s for s in source_parents if s != target_parent]
+            return {
+                "success": False,
+                "message": "No tickets found"
+            }
 
+        # remove duplicates
+        source_parents = list(
+            set(source_parents)
+        )
+
+        # remove self merge
+        source_parents = [
+            s for s in source_parents
+            if s != target_parent
+        ]
+
+        # find target ticket
         target_ticket = next(
-            (t for t in tickets if t["issue_key"] == target_parent),
+            (
+                t for t in tickets
+                if t["issue_key"] == target_parent
+            ),
             None
         )
 
         if not target_ticket:
-            return {"success": False, "message": "Target not found"}
 
-        force_completed = target_ticket.get("status") == "Completed"
+            return {
+                "success": False,
+                "message": "Target not found"
+            }
+
+        # if target already completed
+        force_completed = (
+            target_ticket.get("status")
+            == "Completed"
+        )
 
         moved = 0
 
         # ─────────────────────────────
-        # STEP 1: MOVE + MARK DUPLICATE
+        # MERGE SOURCE PARENTS
         # ─────────────────────────────
         for source in source_parents:
 
-            for t in tickets:
+            # find source parent
+            source_ticket = next(
+                (
+                    t for t in tickets
+                    if t["issue_key"] == source
+                ),
+                None
+            )
 
+            if not source_ticket:
+                continue
+
+            # get all children of source
+            source_children = [
+                t for t in tickets
                 if (
                     t["issue_key"] == source
                     or t.get("parent_ticket_key") == source
-                ):
+                )
+            ]
 
-                    update_payload = {
-                        "parent_ticket_key": target_parent
-                    }
+            # ─────────────────────────
+            # MOVE EACH TICKET
+            # ─────────────────────────
+            for t in source_children:
 
-                    await mark_duplicate(t["issue_key"])
+                issue_key = t["issue_key"]
 
-                    if force_completed:
-                        update_payload["status"] = "Completed"
+                # skip target itself
+                if issue_key == target_parent:
+                    continue
 
-                    supabase.table("tickets") \
-                        .update(update_payload) \
-                        .eq("issue_key", t["issue_key"]) \
-                        .execute()
+                # get next child number
+                next_num = await get_next_child_number(
+                    target_parent
+                )
 
-                    moved += 1
+                update_payload = {
+
+                    "parent_ticket_key":
+                        target_parent,
+
+                    "child_key":
+                        f"{target_parent}.{next_num}",
+
+                    "is_duplicate": True
+                }
+
+                # preserve completed state
+                if force_completed:
+
+                    update_payload["status"] = (
+                        "Completed"
+                    )
+
+                # update db
+                supabase.table("tickets") \
+                    .update(update_payload) \
+                    .eq("issue_key", issue_key) \
+                    .execute()
+
+                moved += 1
+
+                print(
+                    f"✅ Merged {issue_key} "
+                    f"→ {target_parent}.{next_num}"
+                )
 
         # ─────────────────────────────
-        # STEP 2: CHILD KEY REBUILD
-        # ─────────────────────────────
-        children = await get_children(target_parent)
-
-        updates = []
-        counter = 1
-
-        for t in children:
-
-            if t["issue_key"] == target_parent:
-                continue
-
-            update_data = {
-                "issue_key": t["issue_key"],
-                "child_key": f"{target_parent}.{counter}"
-            }
-
-            if force_completed:
-                update_data["status"] = "Completed"
-
-            updates.append(update_data)
-            counter += 1
-
-        if updates:
-            await update_child_keys(updates)
-
-        # ─────────────────────────────
-        # STEP 3: 🔥 SYNC WITH JIRA (IMPORTANT)
+        # JIRA STATUS SYNC
         # ─────────────────────────────
         if force_completed:
 
-            jira_result = await complete_parent_and_children(target_parent)
+            jira_result = (
+                await complete_parent_and_children(
+                    target_parent
+                )
+            )
 
-            print("🔥 Jira sync result:", jira_result)
+            print(
+                "🔥 Jira sync result:",
+                jira_result
+            )
 
         # ─────────────────────────────
         # FINAL RESPONSE
         # ─────────────────────────────
         return {
+
             "success": True,
+
             "target": target_parent,
+
             "sources": source_parents,
+
             "moved": moved,
+
             "status_sync": force_completed,
+
             "jira_synced": force_completed
         }
 
     except Exception as e:
 
-        print("❌ merge_tickets error:", str(e))
+        print(
+            "❌ merge_tickets error:",
+            str(e)
+        )
 
         return {
+
             "success": False,
+
             "message": str(e)
         }
-
