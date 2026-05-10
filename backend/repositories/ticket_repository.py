@@ -318,3 +318,128 @@ async def detach_child_ticket(issue_key: str):
         print("❌ detach_child_ticket error:", str(e))
         return False
 
+
+
+# ─────────────────────────────────────────────
+# DELETE ONLY SINGLE TICKET
+# ─────────────────────────────────────────────
+async def delete_single_ticket(issue_key: str):
+
+    try:
+
+        res = (
+            supabase.table("tickets")
+            .delete()
+            .eq("issue_key", issue_key)
+            .execute()
+        )
+
+        return bool(res.data)
+
+    except Exception as e:
+
+        print(
+            "❌ delete_single_ticket error:",
+            str(e)
+        )
+
+        return False
+
+
+# ─────────────────────────────────────────────
+# PROMOTE FIRST CHILD AS NEW PARENT
+# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# PROMOTE FIRST CHILD AS NEW PARENT
+# REGENERATE CHILD IDS
+# ─────────────────────────────────────────────
+async def promote_first_child_as_parent(
+    old_parent_key: str
+):
+
+    try:
+
+        children = (
+            supabase.table("tickets")
+            .select("*")
+            .eq(
+                "parent_ticket_key",
+                old_parent_key
+            )
+            .order(
+                "issue_key",
+                desc=False
+            )
+            .execute()
+        )
+
+        children = children.data or []
+
+        if not children:
+            return None
+
+        # ─────────────────────────────
+        # FIRST CHILD → NEW PARENT
+        # ─────────────────────────────
+        new_parent = children[0]
+
+        new_parent_key = (
+            new_parent["issue_key"]
+        )
+
+        # remove parent relation
+        supabase.table("tickets") \
+            .update({
+                "parent_ticket_key": None,
+                "child_key": None,
+                "is_duplicate": False
+            }) \
+            .eq(
+                "issue_key",
+                new_parent_key
+            ) \
+            .execute()
+
+        # ─────────────────────────────
+        # REMAINING CHILDREN
+        # REGENERATE .1 .2 .3
+        # ─────────────────────────────
+        remaining = sorted(
+            children[1:],
+            key=lambda x: x["issue_key"]
+        )
+
+        counter = 1
+
+        for child in remaining:
+
+            supabase.table("tickets") \
+                .update({
+                    "parent_ticket_key":
+                        new_parent_key,
+
+                    "child_key":
+                        f"{new_parent_key}.{counter}"
+                }) \
+                .eq(
+                    "issue_key",
+                    child["issue_key"]
+                ) \
+                .execute()
+
+            counter += 1
+
+        return new_parent_key
+
+    except Exception as e:
+
+        print(
+            "❌ promote_first_child_as_parent error:",
+            str(e)
+        )
+
+        return None
+
+
+
+

@@ -256,11 +256,6 @@ function createFullTicketCard(t, idx = 0) {
         👥 Child
       </button>
 
-      <button class="bg-red/10 border border-red/20 text-red text-[0.65rem] font-bold py-2 px-3 rounded-xl"
-        onclick="deleteTicket('${t.issue_key}')">
-        🗑
-      </button>
-
     </div>
   `;
 

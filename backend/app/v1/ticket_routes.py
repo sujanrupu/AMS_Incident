@@ -9,10 +9,20 @@ from repositories.ticket_repository import search_similar_tickets
 from services.embedding_service import get_embedding
 
 # repository layer
+# repository layer
 from repositories.ticket_repository import (
     get_all_tickets,
     delete_ticket_cascade,
     update_status_cascade,
+    delete_ticket,
+    get_ticket,
+    get_children,
+    update_parent,
+    update_child_keys,
+
+    # NEW
+    delete_single_ticket,
+    promote_first_child_as_parent
 )
 
 # Jira integration
@@ -143,6 +153,180 @@ async def delete(issueKey: str):
             "type": "error",
             "message": str(e)
         }
+
+
+# ─────────────────────────────────────────────
+# DELETE ONLY PARENT
+# PROMOTE FIRST CHILD AS NEW PARENT
+# ─────────────────────────────────────────────
+@router.delete("/tickets/{issueKey}/parent-only")
+async def delete_parent_only(issueKey: str):
+
+    try:
+
+        from repositories.ticket_repository import (
+            get_children,
+            delete_ticket,
+            update_parent,
+            promote_first_child_as_parent
+        )
+
+        from services.jira_service import (
+            delete_jira_ticket
+        )
+
+        tickets = await get_all_tickets()
+
+        current = next(
+            (
+                t for t in tickets
+                if t["issue_key"] == issueKey
+            ),
+            None
+        )
+
+        if not current:
+            return {
+                "type": "error",
+                "message": "Parent ticket not found"
+            }
+
+        # only parent allowed
+        if current.get("parent_ticket_key"):
+            return {
+                "type": "error",
+                "message": "Only parent tickets allowed"
+            }
+
+        # get children
+        children = await get_children(issueKey)
+
+        # ─────────────────────────────
+        # NO CHILDREN
+        # NORMAL DELETE
+        # ─────────────────────────────
+        if not children:
+
+            await delete_jira_ticket(issueKey)
+
+            await delete_ticket(issueKey)
+
+            return {
+                "type": "success",
+                "message": "Parent deleted successfully",
+                "id": issueKey
+            }
+
+        # ─────────────────────────────
+        # PROMOTE FIRST CHILD
+        # ─────────────────────────────
+        new_parent_key = await promote_first_child_as_parent(
+            issueKey
+        )
+
+        if not new_parent_key:
+            return {
+                "type": "error",
+                "message": "Failed to promote child"
+            }
+
+        # ─────────────────────────────
+        # DELETE OLD PARENT
+        # ─────────────────────────────
+        await delete_jira_ticket(issueKey)
+
+        await delete_ticket(issueKey)
+
+        # IMPORTANT:
+        # - Existing statuses preserved
+        # - Child numbering gaps preserved
+        # - No status cascade
+
+        return {
+            "type": "success",
+            "message": "Parent deleted and first child promoted",
+            "old_parent": issueKey,
+            "new_parent": new_parent_key
+        }
+
+    except Exception as e:
+
+        print(
+            "❌ delete_parent_only error:",
+            str(e)
+        )
+
+        return {
+            "type": "error",
+            "message": str(e)
+        }
+        
+
+
+# ─────────────────────────────────────────────
+# DELETE SINGLE CHILD
+# ─────────────────────────────────────────────
+@router.delete("/tickets/child/{issueKey}")
+async def delete_single_child(issueKey: str):
+
+    try:
+
+        from repositories.ticket_repository import (
+            delete_ticket,
+            get_ticket
+        )
+
+        from services.jira_service import (
+            delete_jira_ticket
+        )
+
+        current = await get_ticket(issueKey)
+
+        if not current:
+            return {
+                "type": "error",
+                "message": "Child ticket not found"
+            }
+
+        # only child allowed
+        if not current.get("parent_ticket_key"):
+            return {
+                "type": "error",
+                "message": "Only child tickets allowed"
+            }
+
+        # ─────────────────────────────
+        # DELETE FROM JIRA
+        # ─────────────────────────────
+        await delete_jira_ticket(issueKey)
+
+        # ─────────────────────────────
+        # DELETE FROM DATABASE
+        # ─────────────────────────────
+        await delete_ticket(issueKey)
+
+        # IMPORTANT:
+        # No child key regeneration
+        # Keep numbering gaps as-is
+
+        return {
+            "type": "success",
+            "message": "Child ticket deleted successfully",
+            "id": issueKey
+        }
+
+    except Exception as e:
+
+        print(
+            "❌ delete_single_child error:",
+            str(e)
+        )
+
+        return {
+            "type": "error",
+            "message": str(e)
+        }
+
 
 
 # ─────────────────────────────────────────────

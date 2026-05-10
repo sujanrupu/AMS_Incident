@@ -217,7 +217,7 @@ async function loadTickets() {
 
           <button
             class="bg-red/10 hover:bg-red/20 border border-red/20 text-red text-[0.65rem] font-bold py-2 px-3 rounded-xl mono transition-all duration-200 hover:scale-[1.02]"
-            onclick="deleteTicket('${t.issue_key}')"
+            onclick="showDeleteOptions('${t.issue_key}')"
           >
             🗑
           </button>
@@ -526,6 +526,14 @@ async function openChildTickets(parentKey) {
     ➕ Create New Ticket
   </button>
 
+  <button
+    class="bg-red/10 hover:bg-red/20 border border-red/20 text-red text-[0.65rem] font-bold py-1.5 px-3 rounded-lg mono transition-all"
+    onclick="deleteSingleChild('${c.issue_key}')"
+  >
+    🗑 Delete
+  </button>
+  
+
 </div>
 
               </div>
@@ -592,6 +600,185 @@ async function deleteTicket(id) {
 
     console.error(
       "❌ Delete error:",
+      err
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// DELETE OPTIONS MODAL
+// ─────────────────────────────────────────────
+function showDeleteOptions(issueKey) {
+
+  const old =
+    document.getElementById("deleteModal");
+
+  if (old) old.remove();
+
+  const modal =
+    document.createElement("div");
+
+  modal.id = "deleteModal";
+
+  modal.className =
+    "fixed inset-0 bg-black/70 flex items-center justify-center z-50";
+
+  modal.innerHTML = `
+    <div class="bg-surface border border-purple/15 rounded-2xl w-[420px] p-6 shadow-2xl animate-slideUp">
+
+      <h2 class="text-red font-bold text-lg mb-3">
+        Delete Ticket
+      </h2>
+
+      <p class="text-sm text-muted mb-6">
+        Choose deletion strategy
+      </p>
+
+      <div class="space-y-3">
+
+        <button
+          onclick="deleteParentOnly('${issueKey}')"
+          class="w-full bg-yellow/10 hover:bg-yellow/20 border border-yellow/20 text-yellow py-3 rounded-xl text-sm font-bold transition-all"
+        >
+          Delete Parent Only
+        </button>
+
+        <button
+          onclick="deleteParentCascade('${issueKey}')"
+          class="w-full bg-red/10 hover:bg-red/20 border border-red/20 text-red py-3 rounded-xl text-sm font-bold transition-all"
+        >
+          Delete Parent + All Children
+        </button>
+
+      </div>
+
+      <button
+        onclick="closeDeleteModal()"
+        class="mt-5 w-full bg-surface2 hover:bg-white/5 py-2 rounded-xl text-sm transition-all"
+      >
+        Cancel
+      </button>
+
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+}
+
+
+// ─────────────────────────────────────────────
+// CLOSE DELETE MODAL
+// ─────────────────────────────────────────────
+function closeDeleteModal() {
+
+  document
+    .getElementById("deleteModal")
+    ?.remove();
+}
+
+
+// ─────────────────────────────────────────────
+// DELETE PARENT + ALL CHILDREN
+// ─────────────────────────────────────────────
+async function deleteParentCascade(issueKey) {
+
+  try {
+
+    const res = await apiRequest(
+      `/tickets/${issueKey}`,
+      "DELETE"
+    );
+
+    if (res?.error) {
+
+      console.error(
+        "❌ Cascade delete failed:",
+        res.message
+      );
+
+      return;
+    }
+
+    closeDeleteModal();
+
+    loadTickets();
+
+  } catch (err) {
+
+    console.error(
+      "❌ deleteParentCascade error:",
+      err
+    );
+  }
+}
+
+
+// ─────────────────────────────────────────────
+// DELETE ONLY PARENT
+// ─────────────────────────────────────────────
+async function deleteParentOnly(issueKey) {
+
+  try {
+
+    const res = await apiRequest(
+      `/tickets/${issueKey}/parent-only`,
+      "DELETE"
+    );
+
+    if (res?.error) {
+
+      console.error(
+        "❌ Parent delete failed:",
+        res.message
+      );
+
+      return;
+    }
+
+    closeDeleteModal();
+
+    loadTickets();
+
+  } catch (err) {
+
+    console.error(
+      "❌ deleteParentOnly error:",
+      err
+    );
+  }
+}
+
+
+// ─────────────────────────────────────────────
+// DELETE SINGLE CHILD
+// ─────────────────────────────────────────────
+async function deleteSingleChild(issueKey) {
+
+  try {
+
+    const res = await apiRequest(
+      `/tickets/child/${issueKey}`,
+      "DELETE"
+    );
+
+    if (res?.error) {
+
+      console.error(
+        "❌ Child delete failed:",
+        res.message
+      );
+
+      return;
+    }
+
+    closeChildModal();
+
+    loadTickets();
+
+  } catch (err) {
+
+    console.error(
+      "❌ deleteSingleChild error:",
       err
     );
   }
@@ -739,6 +926,10 @@ window.deleteTicket = deleteTicket;
 window.updateStatus = updateStatus;
 window.executeMerge = executeMergeFinal;
 window.detachChildTicket = detachChildTicket;
+window.showDeleteOptions = showDeleteOptions;
+window.deleteParentOnly = deleteParentOnly;
+window.deleteParentCascade = deleteParentCascade;
+window.deleteSingleChild = deleteSingleChild;
 
 
 // ─────────────────────────────────────────────
